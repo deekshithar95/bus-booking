@@ -1,7 +1,8 @@
 const express = require("express");
 
 const {
-  getAvailableSeats
+  getAvailableSeats,
+  createBooking
 } = require("../controllers/bookingController");
 
 const {
@@ -14,6 +15,12 @@ router.get(
   "/schedule/:scheduleId/seats",
   protect,
   getAvailableSeats
+);
+
+router.post(
+  "/",
+  protect,
+  createBooking
 );
 
 module.exports = router;
