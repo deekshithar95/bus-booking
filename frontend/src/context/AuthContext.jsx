@@ -1,50 +1,200 @@
-import { createContext, useContext, useState } from "react";
+
+import {
+  createContext,
+  useContext,
+  useState
+} from "react";
+
 import api from "../services/api";
+
+
+// =====================================================
+// CREATE AUTH CONTEXT
+// =====================================================
 
 const AuthContext = createContext();
 
+
+// =====================================================
+// AUTH PROVIDER
+// =====================================================
+
 export const AuthProvider = ({ children }) => {
 
-  const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem("user");
+  // ---------------------------------------------------
+  // LOAD USER FROM LOCAL STORAGE
+  // ---------------------------------------------------
 
-    return savedUser
-      ? JSON.parse(savedUser)
-      : null;
+  const [user, setUser] = useState(() => {
+
+    try {
+
+      const savedUser =
+        localStorage.getItem("user");
+
+      if (!savedUser) {
+        return null;
+      }
+
+      return JSON.parse(savedUser);
+
+    } catch (error) {
+
+      console.error(
+        "LOAD USER ERROR:",
+        error
+      );
+
+      localStorage.removeItem("user");
+
+      return null;
+    }
   });
 
-  const [loading, setLoading] = useState(false);
 
-  const login = async (email, password) => {
+  // ---------------------------------------------------
+  // LOADING
+  // ---------------------------------------------------
+
+  const [loading, setLoading] =
+    useState(false);
+
+
+  // ===================================================
+  // LOGIN
+  // ===================================================
+
+  const login = async (
+    email,
+    password
+  ) => {
 
     setLoading(true);
 
     try {
 
-      const response = await api.post("/auth/login", {
-        email,
-        password
-      });
+      console.log(
+        "LOGIN REQUEST:",
+        email
+      );
 
-      const { token, user } = response.data;
 
-      localStorage.setItem("token", token);
-      localStorage.setItem("user", JSON.stringify(user));
+      // ------------------------------------------------
+      // CALL LOGIN API
+      // ------------------------------------------------
 
-      setUser(user);
+      const response =
+        await api.post(
+          "/auth/login",
+          {
+            email,
+            password
+          }
+        );
+
+
+      console.log(
+        "LOGIN RESPONSE:",
+        response.data
+      );
+
+
+      // ------------------------------------------------
+      // GET TOKEN
+      // ------------------------------------------------
+
+      const token =
+        response.data?.token;
+
+
+      // ------------------------------------------------
+      // GET USER
+      // ------------------------------------------------
+
+      const loggedInUser =
+        response.data?.user;
+
+
+      // ------------------------------------------------
+      // CHECK TOKEN
+      // ------------------------------------------------
+
+      if (!token) {
+
+        return {
+          success: false,
+          message:
+            "Login successful but token was not received"
+        };
+      }
+
+
+      // ------------------------------------------------
+      // SAVE TOKEN
+      // ------------------------------------------------
+
+      localStorage.setItem(
+        "token",
+        token
+      );
+
+
+      // ------------------------------------------------
+      // SAVE USER
+      // ------------------------------------------------
+
+      if (loggedInUser) {
+
+        localStorage.setItem(
+          "user",
+          JSON.stringify(
+            loggedInUser
+          )
+        );
+
+        setUser(loggedInUser);
+
+      } else {
+
+        console.warn(
+          "Login response does not contain user"
+        );
+
+        localStorage.removeItem(
+          "user"
+        );
+
+        setUser(null);
+      }
+
+
+      // ------------------------------------------------
+      // RETURN SUCCESS
+      // ------------------------------------------------
 
       return {
-        success: true
+        success: true,
+        user: loggedInUser
       };
+
 
     } catch (error) {
 
+      console.error(
+        "LOGIN ERROR:",
+        error.response?.data ||
+        error.message
+      );
+
+
       return {
         success: false,
+
         message:
           error.response?.data?.message ||
           "Login failed"
       };
+
 
     } finally {
 
@@ -53,30 +203,55 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (userData) => {
+
+  // ===================================================
+  // REGISTER
+  // ===================================================
+
+  const register = async (
+    userData
+  ) => {
 
     setLoading(true);
 
     try {
 
-      const response = await api.post(
-        "/auth/register",
-        userData
+      const response =
+        await api.post(
+          "/auth/register",
+          userData
+        );
+
+
+      console.log(
+        "REGISTER RESPONSE:",
+        response.data
       );
+
 
       return {
         success: true,
         data: response.data
       };
 
+
     } catch (error) {
+
+      console.error(
+        "REGISTER ERROR:",
+        error.response?.data ||
+        error.message
+      );
+
 
       return {
         success: false,
+
         message:
           error.response?.data?.message ||
           "Registration failed"
       };
+
 
     } finally {
 
@@ -85,15 +260,37 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+
+  // ===================================================
+  // LOGOUT
+  // ===================================================
+
   const logout = () => {
 
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    console.log(
+      "LOGGING OUT"
+    );
+
+
+    localStorage.removeItem(
+      "token"
+    );
+
+    localStorage.removeItem(
+      "user"
+    );
+
 
     setUser(null);
   };
 
+
+  // ===================================================
+  // AUTH CONTEXT
+  // ===================================================
+
   return (
+
     <AuthContext.Provider
       value={{
         user,
@@ -103,11 +300,21 @@ export const AuthProvider = ({ children }) => {
         logout
       }}
     >
+
       {children}
+
     </AuthContext.Provider>
   );
 };
 
+
+// =====================================================
+// USE AUTH
+// =====================================================
+
 export const useAuth = () => {
-  return useContext(AuthContext);
+
+  return useContext(
+    AuthContext
+  );
 };
