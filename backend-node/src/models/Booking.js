@@ -26,7 +26,7 @@ const Booking = {
 
       WHERE ss.schedule_id = ?
 
-      ORDER BY s.id
+      ORDER BY CAST(s.seat_number AS UNSIGNED)
       `,
       [scheduleId]
     );
@@ -38,6 +38,21 @@ const Booking = {
   // =====================================================
   // CREATE BOOKING
   // POST /api/bookings
+  //
+  // IMPORTANT:
+  // seatIds received from controller are actually
+  // SEAT NUMBERS from frontend.
+  //
+  // Example:
+  // frontend sends:
+  // seats: [24]
+  //
+  // database:
+  // seat_number = 24
+  // seat_id     = 97
+  //
+  // This method converts:
+  // seat number 24 -> seat_id 97
   // =====================================================
 
   async createBooking({
@@ -59,38 +74,177 @@ const Booking = {
 
 
       // =================================================
-      // CREATE SQL PLACEHOLDERS
+      // VALIDATE INPUT
       // =================================================
 
-      const placeholders = seatIds
-        .map(() => "?")
-        .join(",");
+      if (
+        !Array.isArray(seatIds) ||
+        seatIds.length === 0
+      ) {
+
+        throw new Error(
+          "At least one seat is required"
+        );
+      }
 
 
       // =================================================
-      // LOCK SELECTED SEATS
+      // NORMALIZE SEAT NUMBERS
+      //
+      // The controller sends seat numbers.
+      //
+      // Example:
+      // [24, 25]
+      // =================================================
+
+      const seatNumbers =
+        seatIds.map(Number);
+
+
+      // =================================================
+      // VALIDATE SEAT NUMBERS
+      // =================================================
+
+      if (
+        seatNumbers.some(
+          seat =>
+            !Number.isInteger(seat) ||
+            seat <= 0
+        )
+      ) {
+
+        throw new Error(
+          "Invalid seat number"
+        );
+      }
+
+
+      // =================================================
+      // CHECK DUPLICATE SEAT NUMBERS
+      // =================================================
+
+      const uniqueSeatNumbers =
+        [...new Set(seatNumbers)];
+
+
+      if (
+        uniqueSeatNumbers.length !==
+        seatNumbers.length
+      ) {
+
+        throw new Error(
+          "Duplicate seats are not allowed"
+        );
+      }
+
+
+      // =================================================
+      // CREATE PLACEHOLDERS
+      // =================================================
+
+      const placeholders =
+        uniqueSeatNumbers
+          .map(() => "?")
+          .join(",");
+
+
+      // =================================================
+      // FIND SCHEDULE + BUS
+      //
+      // This is important because seat numbers belong
+      // to a particular bus.
+      // =================================================
+
+      const [scheduleRows] =
+        await connection.execute(
+          `
+          SELECT
+            sc.id AS schedule_id,
+            sc.bus_id,
+            b.total_seats
+
+          FROM schedules sc
+
+          INNER JOIN buses b
+            ON sc.bus_id = b.id
+
+          WHERE sc.id = ?
+
+          FOR UPDATE
+          `,
+          [scheduleId]
+        );
+
+
+      // =================================================
+      // CHECK SCHEDULE EXISTS
+      // =================================================
+
+      if (
+        scheduleRows.length === 0
+      ) {
+
+        throw new Error(
+          "Schedule not found"
+        );
+      }
+
+
+      const schedule =
+        scheduleRows[0];
+
+
+      // =================================================
+      // VALIDATE SEAT NUMBERS AGAINST BUS CAPACITY
+      // =================================================
+
+      const invalidSeatNumber =
+        uniqueSeatNumbers.find(
+          seat =>
+            seat > Number(schedule.total_seats)
+        );
+
+
+      if (invalidSeatNumber) {
+
+        throw new Error(
+          `Seat ${invalidSeatNumber} is invalid for this bus`
+        );
+      }
+
+
+      // =================================================
+      // FIND ACTUAL SEAT IDS
+      //
+      // Example:
+      //
+      // seat number 24
+      //
+      // becomes:
+      //
+      // seat_id 97
       // =================================================
 
       const [seatRows] =
         await connection.execute(
           `
           SELECT
-            id,
-            schedule_id,
-            seat_id,
-            status
+            s.id AS seat_id,
+            s.bus_id,
+            s.seat_number,
+            s.seat_type
 
-          FROM schedule_seats
+          FROM seats s
 
-          WHERE schedule_id = ?
+          WHERE s.bus_id = ?
 
-          AND seat_id IN (${placeholders})
+          AND s.seat_number IN (${placeholders})
 
           FOR UPDATE
           `,
           [
-            scheduleId,
-            ...seatIds
+            schedule.bus_id,
+            ...uniqueSeatNumbers.map(String)
           ]
         );
 
@@ -101,11 +255,100 @@ const Booking = {
 
       if (
         seatRows.length !==
-        seatIds.length
+        uniqueSeatNumbers.length
+      ) {
+
+        const foundSeatNumbers =
+          seatRows.map(
+            seat =>
+              String(seat.seat_number)
+          );
+
+        const missingSeat =
+          uniqueSeatNumbers.find(
+            seat =>
+              !foundSeatNumbers.includes(
+                String(seat)
+              )
+          );
+
+        throw new Error(
+          `Seat ${missingSeat} is invalid`
+        );
+      }
+
+
+      // =================================================
+      // CONVERT SEAT NUMBERS -> SEAT IDS
+      //
+      // Example:
+      //
+      // 24 -> 97
+      // 25 -> 96
+      // =================================================
+
+      const actualSeatIds =
+        seatRows.map(
+          seat =>
+            Number(seat.seat_id)
+        );
+
+
+      // =================================================
+      // LOCK SCHEDULE SEATS
+      //
+      // Now we use the REAL seat_id values.
+      // =================================================
+
+      const scheduleSeatPlaceholders =
+        actualSeatIds
+          .map(() => "?")
+          .join(",");
+
+
+      const [scheduleSeatRows] =
+        await connection.execute(
+          `
+          SELECT
+
+            ss.id,
+            ss.schedule_id,
+            ss.seat_id,
+            ss.status,
+            ss.booking_id,
+
+            s.seat_number,
+            s.seat_type
+
+          FROM schedule_seats ss
+
+          INNER JOIN seats s
+            ON ss.seat_id = s.id
+
+          WHERE ss.schedule_id = ?
+
+          AND ss.seat_id IN (${scheduleSeatPlaceholders})
+
+          FOR UPDATE
+          `,
+          [
+            scheduleId,
+            ...actualSeatIds
+          ]
+        );
+
+
+      // =================================================
+      // CHECK ALL SEATS EXIST FOR THIS SCHEDULE
+      // =================================================
+
+      if (
+        scheduleSeatRows.length !==
+        actualSeatIds.length
       ) {
 
         throw new Error(
-          "One or more seats are invalid"
+          "One or more seats are not available for this schedule"
         );
       }
 
@@ -115,7 +358,7 @@ const Booking = {
       // =================================================
 
       const alreadyBooked =
-        seatRows.find(
+        scheduleSeatRows.find(
           seat =>
             String(seat.status)
               .toUpperCase() ===
@@ -126,7 +369,28 @@ const Booking = {
       if (alreadyBooked) {
 
         throw new Error(
-          `Seat ${alreadyBooked.seat_id} is already booked`
+          `Seat ${alreadyBooked.seat_number} is already booked`
+        );
+      }
+
+
+      // =================================================
+      // CHECK AVAILABLE STATUS
+      // =================================================
+
+      const unavailableSeat =
+        scheduleSeatRows.find(
+          seat =>
+            String(seat.status)
+              .toUpperCase() !==
+            "AVAILABLE"
+        );
+
+
+      if (unavailableSeat) {
+
+        throw new Error(
+          `Seat ${unavailableSeat.seat_number} is not available`
         );
       }
 
@@ -183,17 +447,20 @@ const Booking = {
       const pricePerSeat =
         Number(
           (
-            totalAmount /
-            seatIds.length
+            Number(totalAmount) /
+            actualSeatIds.length
           ).toFixed(2)
         );
 
 
       // =================================================
       // INSERT BOOKING SEATS
+      //
+      // IMPORTANT:
+      // Store REAL seat_id, NOT seat number.
       // =================================================
 
-      for (const seatId of seatIds) {
+      for (const seatId of actualSeatIds) {
 
         await connection.execute(
           `
@@ -242,7 +509,13 @@ const Booking = {
           );
 
 
-        if (updateResult.affectedRows !== 1) {
+        // =================================================
+        // VERIFY UPDATE
+        // =================================================
+
+        if (
+          updateResult.affectedRows !== 1
+        ) {
 
           throw new Error(
             `Failed to book seat ${seatId}`
@@ -270,11 +543,18 @@ const Booking = {
 
         scheduleId,
 
-        seatIds,
+        // Return seat numbers to frontend
+        seatIds:
+          uniqueSeatNumbers,
+
+        // Also return actual database seat IDs
+        databaseSeatIds:
+          actualSeatIds,
 
         totalAmount,
 
-        status: "CONFIRMED"
+        status:
+          "CONFIRMED"
 
       };
 
@@ -309,10 +589,6 @@ const Booking = {
 
   async getBookingsByUser(userId) {
 
-    // =================================================
-    // GET BOOKING INFORMATION
-    // =================================================
-
     const [rows] =
       await db.execute(
         `
@@ -332,7 +608,6 @@ const Booking = {
 
           bk.created_at,
 
-
           s.travel_date,
 
           s.departure_time,
@@ -340,7 +615,6 @@ const Booking = {
           s.arrival_time,
 
           s.fare,
-
 
           b.id AS bus_id,
 
@@ -352,7 +626,6 @@ const Booking = {
 
           b.total_seats,
 
-
           r.id AS route_id,
 
           r.source,
@@ -363,24 +636,18 @@ const Booking = {
 
           r.duration_minutes
 
-
         FROM bookings bk
-
 
         INNER JOIN schedules s
           ON bk.schedule_id = s.id
 
-
         INNER JOIN buses b
           ON s.bus_id = b.id
-
 
         INNER JOIN routes r
           ON s.route_id = r.id
 
-
         WHERE bk.user_id = ?
-
 
         ORDER BY bk.created_at DESC
         `,
@@ -388,9 +655,9 @@ const Booking = {
       );
 
 
-    // =================================================
+    // =====================================================
     // GET SEATS FOR EACH BOOKING
-    // =================================================
+    // =====================================================
 
     for (const booking of rows) {
 
@@ -407,30 +674,27 @@ const Booking = {
 
             st.seat_type
 
-
           FROM booking_seats bs
-
 
           INNER JOIN seats st
             ON bs.seat_id = st.id
 
-
           WHERE bs.booking_id = ?
 
-
-          ORDER BY st.id
+          ORDER BY CAST(st.seat_number AS UNSIGNED)
           `,
           [booking.booking_id]
         );
 
 
-      booking.seats = seatRows;
+      booking.seats =
+        seatRows;
     }
 
 
-    // =================================================
+    // =====================================================
     // RETURN BOOKINGS
-    // =================================================
+    // =====================================================
 
     return rows;
   },
@@ -606,25 +870,40 @@ const Booking = {
       // UPDATE BOOKING STATUS
       // =================================================
 
-      await connection.execute(
-        `
-        UPDATE bookings
+      const [cancelResult] =
+        await connection.execute(
+          `
+          UPDATE bookings
 
-        SET
+          SET
 
-          status = 'CANCELLED'
+            status = 'CANCELLED'
 
-        WHERE id = ?
+          WHERE id = ?
 
-        AND user_id = ?
+          AND user_id = ?
 
-        AND status = 'CONFIRMED'
-        `,
-        [
-          bookingId,
-          userId
-        ]
-      );
+          AND status = 'CONFIRMED'
+          `,
+          [
+            bookingId,
+            userId
+          ]
+        );
+
+
+      // =================================================
+      // VERIFY BOOKING WAS CANCELLED
+      // =================================================
+
+      if (
+        cancelResult.affectedRows !== 1
+      ) {
+
+        throw new Error(
+          "Failed to cancel booking"
+        );
+      }
 
 
       // =================================================
@@ -660,7 +939,8 @@ const Booking = {
 
         releasedSeats:
           seatRows.map(
-            seat => seat.seat_id
+            seat =>
+              seat.seat_id
           )
 
       };
