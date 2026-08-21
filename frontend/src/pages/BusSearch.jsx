@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 
 function BusSearch() {
   const navigate = useNavigate();
+  const dateInputRef = useRef(null);
 
   const [form, setForm] = useState({
     from: "",
@@ -39,6 +40,18 @@ function BusSearch() {
   };
 
   // =====================================================
+  // OPEN DATE PICKER
+  // =====================================================
+
+  const openDatePicker = () => {
+    if (dateInputRef.current?.showPicker) {
+      dateInputRef.current.showPicker();
+    } else {
+      dateInputRef.current?.focus();
+    }
+  };
+
+  // =====================================================
   // SEARCH BUSES
   // =====================================================
 
@@ -50,21 +63,15 @@ function BusSearch() {
     setBuses([]);
 
     try {
-      const response = await api.get(
-        "/buses/search",
-        {
-          params: {
-            from: form.from.trim(),
-            to: form.to.trim(),
-            date: form.date
-          }
+      const response = await api.get("/buses/search", {
+        params: {
+          from: form.from.trim(),
+          to: form.to.trim(),
+          date: form.date
         }
-      );
+      });
 
-      console.log(
-        "SEARCH RESPONSE:",
-        response.data
-      );
+      console.log("SEARCH RESPONSE:", response.data);
 
       const result =
         response.data?.buses ||
@@ -79,20 +86,16 @@ function BusSearch() {
           "No buses found for this route and date."
         );
       }
-
     } catch (error) {
-
       console.error(
         "BUS SEARCH ERROR:",
-        error.response?.data ||
-        error.message
+        error.response?.data || error.message
       );
 
       setError(
         error.response?.data?.message ||
         "Unable to search buses. Please try again."
       );
-
     } finally {
       setLoading(false);
     }
@@ -103,34 +106,26 @@ function BusSearch() {
   // =====================================================
 
   const selectBus = (bus) => {
-    console.log(
-      "SELECTED BUS:",
-      bus
-    );
+    console.log("SELECTED BUS:", bus);
 
     const scheduleId =
       bus.schedule_id ||
       bus.scheduleId;
 
     if (!scheduleId) {
-      alert(
-        "Schedule ID is missing from this bus."
-      );
+      alert("Schedule ID is missing from this bus.");
       return;
     }
 
-    navigate(
-      "/seats",
-      {
-        state: {
-          bus,
-          scheduleId,
-          travelDate: form.date,
-          from: form.from,
-          to: form.to
-        }
+    navigate("/seats", {
+      state: {
+        bus,
+        scheduleId,
+        travelDate: form.date,
+        from: form.from,
+        to: form.to
       }
-    );
+    });
   };
 
   // =====================================================
@@ -138,13 +133,11 @@ function BusSearch() {
   // =====================================================
 
   const formatDate = (date) => {
-
     if (!date) {
       return "-";
     }
 
-    const parsedDate =
-      new Date(date);
+    const parsedDate = new Date(date);
 
     if (Number.isNaN(parsedDate.getTime())) {
       return date;
@@ -161,6 +154,14 @@ function BusSearch() {
   };
 
   // =====================================================
+  // TODAY
+  // =====================================================
+
+  const today = new Date()
+    .toISOString()
+    .split("T")[0];
+
+  // =====================================================
   // UI
   // =====================================================
 
@@ -168,7 +169,7 @@ function BusSearch() {
     <div style={styles.page}>
 
       {/* =================================================
-          HERO HEADER
+          HERO
       ================================================= */}
 
       <section style={styles.hero}>
@@ -198,10 +199,14 @@ function BusSearch() {
 
 
       {/* =================================================
-          SEARCH SECTION
+          MAIN
       ================================================= */}
 
       <main style={styles.container}>
+
+        {/* =================================================
+            SEARCH CARD
+        ================================================= */}
 
         <section style={styles.searchCard}>
 
@@ -254,6 +259,7 @@ function BusSearch() {
                   placeholder="Departure city"
                   value={form.from}
                   onChange={handleChange}
+                  autoComplete="off"
                   required
                 />
 
@@ -298,6 +304,7 @@ function BusSearch() {
                   placeholder="Destination city"
                   value={form.to}
                   onChange={handleChange}
+                  autoComplete="off"
                   required
                 />
 
@@ -316,18 +323,23 @@ function BusSearch() {
                 TRAVEL DATE
               </label>
 
-              <div style={styles.inputWrapper}>
+              <div
+                style={styles.dateWrapper}
+                onClick={openDatePicker}
+              >
 
                 <span style={styles.inputIcon}>
                   📅
                 </span>
 
                 <input
-                  style={styles.input}
+                  ref={dateInputRef}
+                  style={styles.dateInput}
                   type="date"
                   name="date"
                   value={form.date}
                   onChange={handleChange}
+                  min={today}
                   required
                 />
 
@@ -427,7 +439,7 @@ function BusSearch() {
 
 
         {/* =================================================
-            SEARCH SUMMARY
+            RESULTS HEADER
         ================================================= */}
 
         {!loading &&
@@ -450,7 +462,6 @@ function BusSearch() {
                 </h2>
 
               </div>
-
 
               <div style={styles.tripSummary}>
 
@@ -608,7 +619,6 @@ function BusSearch() {
 
                       </div>
 
-
                       <span style={styles.busType}>
                         {busType}
                       </span>
@@ -645,8 +655,7 @@ function BusSearch() {
                           ●
                         </span>
 
-                        <div style={styles.line}>
-                        </div>
+                        <div style={styles.line} />
 
                         <span style={styles.routeBus}>
                           🚌
@@ -693,7 +702,7 @@ function BusSearch() {
 
                         <div>
 
-                          <small>
+                          <small style={styles.detailLabel}>
                             Travel Date
                           </small>
 
@@ -714,7 +723,7 @@ function BusSearch() {
 
                         <div>
 
-                          <small>
+                          <small style={styles.detailLabel}>
                             Total Seats
                           </small>
 
@@ -735,7 +744,7 @@ function BusSearch() {
 
                         <div>
 
-                          <small>
+                          <small style={styles.detailLabel}>
                             Schedule ID
                           </small>
 
@@ -764,6 +773,7 @@ function BusSearch() {
 
                         <div style={styles.price}>
                           ₹{fare}
+
                           <span style={styles.perSeat}>
                             / seat
                           </span>
@@ -774,27 +784,29 @@ function BusSearch() {
 
                       <button
                         type="button"
-                        onClick={() =>
-                          selectBus(bus)
-                        }
+                        onClick={() => selectBus(bus)}
                         style={styles.selectButton}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.transform =
                             "translateY(-2px)";
+
                           e.currentTarget.style.boxShadow =
                             "0 8px 20px rgba(25,118,210,0.28)";
                         }}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.transform =
                             "translateY(0)";
+
                           e.currentTarget.style.boxShadow =
                             "none";
                         }}
                       >
                         Select Seats
+
                         <span style={styles.buttonArrow}>
                           →
                         </span>
+
                       </button>
 
                     </div>
@@ -890,10 +902,8 @@ const styles = {
 
 
   heroSubtitle: {
-    margin:
-      "18px 0 0",
-    color:
-      "rgba(255,255,255,0.88)",
+    margin: "18px 0 0",
+    color: "rgba(255,255,255,0.88)",
     fontSize: "17px",
     lineHeight: "1.6",
     maxWidth: "650px"
@@ -947,8 +957,7 @@ const styles = {
 
 
   searchSubtitle: {
-    margin:
-      "6px 0 0",
+    margin: "6px 0 0",
     color: "#6b7280",
     fontSize: "14px"
   },
@@ -995,17 +1004,32 @@ const styles = {
     height: "50px",
     display: "flex",
     alignItems: "center",
-    border:
-      "1px solid #d8e0ea",
+    border: "1px solid #d8e0ea",
     borderRadius: "11px",
     background: "#fbfcfe",
-    boxSizing: "border-box"
+    boxSizing: "border-box",
+    transition: "all 0.2s ease"
+  },
+
+
+  dateWrapper: {
+    height: "50px",
+    display: "flex",
+    alignItems: "center",
+    border: "1px solid #d8e0ea",
+    borderRadius: "11px",
+    background: "#fbfcfe",
+    boxSizing: "border-box",
+    cursor: "pointer",
+    overflow: "hidden",
+    transition: "all 0.2s ease"
   },
 
 
   inputIcon: {
     paddingLeft: "13px",
-    fontSize: "16px"
+    fontSize: "16px",
+    flexShrink: 0
   },
 
 
@@ -1022,20 +1046,36 @@ const styles = {
   },
 
 
+  dateInput: {
+    width: "100%",
+    height: "100%",
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    padding: "0 10px",
+    fontSize: "14px",
+    color: "#172033",
+    boxSizing: "border-box",
+    cursor: "pointer",
+    minWidth: 0
+  },
+
+
   swapButton: {
     width: "40px",
     height: "40px",
     marginBottom: "5px",
     borderRadius: "50%",
-    border:
-      "1px solid #cbdcf5",
+    border: "1px solid #cbdcf5",
     background: "#ffffff",
     color: "#1976d2",
     fontSize: "21px",
     fontWeight: "bold",
     cursor: "pointer",
     boxShadow:
-      "0 3px 10px rgba(25,118,210,0.12)"
+      "0 3px 10px rgba(25,118,210,0.12)",
+    transition:
+      "transform 0.2s ease, background 0.2s ease"
   },
 
 
@@ -1080,8 +1120,7 @@ const styles = {
     padding: "17px 20px",
     marginBottom: "25px",
     background: "#fff5f5",
-    border:
-      "1px solid #fecaca",
+    border: "1px solid #fecaca",
     borderRadius: "13px",
     color: "#991b1b"
   },
@@ -1115,8 +1154,7 @@ const styles = {
     background: "#ffffff",
     padding: "50px 25px",
     borderRadius: "18px",
-    border:
-      "1px solid #e5eaf1",
+    border: "1px solid #e5eaf1",
     boxShadow:
       "0 8px 25px rgba(0,0,0,0.05)"
   },
@@ -1163,8 +1201,7 @@ const styles = {
     gap: "10px",
     padding: "10px 14px",
     background: "#ffffff",
-    border:
-      "1px solid #e1e8f0",
+    border: "1px solid #e1e8f0",
     borderRadius: "10px",
     fontSize: "13px",
     fontWeight: "700",
@@ -1196,8 +1233,7 @@ const styles = {
     padding: "70px 25px",
     background: "#ffffff",
     borderRadius: "20px",
-    border:
-      "1px solid #e5eaf1",
+    border: "1px solid #e5eaf1",
     boxShadow:
       "0 8px 25px rgba(0,0,0,0.04)"
   },
@@ -1234,8 +1270,7 @@ const styles = {
 
   busCard: {
     background: "#ffffff",
-    border:
-      "1px solid #e1e8f0",
+    border: "1px solid #e1e8f0",
     borderRadius: "18px",
     padding: "22px",
     boxShadow:
@@ -1330,11 +1365,6 @@ const styles = {
   },
 
 
-  routeSectionStrong: {
-    fontSize: "14px"
-  },
-
-
   routeLine: {
     display: "flex",
     alignItems: "center",
@@ -1371,8 +1401,7 @@ const styles = {
     gridTemplateColumns:
       "repeat(3, 1fr)",
     gap: "10px",
-    padding:
-      "16px 0",
+    padding: "16px 0",
     borderTop:
       "1px solid #edf0f4",
     borderBottom:
@@ -1393,13 +1422,16 @@ const styles = {
   },
 
 
-  detailItemSmall: {
-    display: "block"
+  detailLabel: {
+    display: "block",
+    color: "#64748b",
+    fontSize: "11px",
+    marginBottom: "3px"
   },
 
 
   // ===================================================
-  // CARD FOOTER
+  // FOOTER
   // ===================================================
 
   cardFooter: {
@@ -1454,6 +1486,5 @@ const styles = {
   }
 
 };
-
 
 export default BusSearch;
